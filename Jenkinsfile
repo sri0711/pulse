@@ -5,18 +5,6 @@ pipeline {
     cron('H * * * *')
   }
 
-  parameters {
-    string(name: 'PROJECT_NAME', defaultValue: '', description: 'Project name from projects.json. Leave blank to build/deploy all projects.')
-    string(name: 'REPO_URL', defaultValue: '', description: 'Optional override repository URL for the selected project.')
-    string(name: 'GIT_BRANCH', defaultValue: 'main', description: 'Branch to build from.')
-    string(name: 'CREDENTIALS_ID', defaultValue: '', description: 'Optional Jenkins credentials ID for private repo access.')
-    string(name: 'PORT', defaultValue: '', description: 'Optional override host port mapping for the container.')
-    string(name: 'CONTAINER_PORT', defaultValue: '', description: 'Optional override container port. Defaults to project config or 80.')
-    choice(name: 'ACTION', choices: ['build', 'deploy', 'build-and-deploy'], description: 'Pipeline action to perform.')
-    choice(name: 'ENVIRONMENT', choices: ['dev', 'staging', 'prod'], description: 'Deployment environment variable.')
-    booleanParam(name: 'SKIP_SCAN', defaultValue: false, description: 'Skip Trivy scan for this job run.')
-    booleanParam(name: 'ALLOW_SCAN_EXCEPTION', defaultValue: false, description: 'Allow Trivy scan failures to continue the build.')
-  }
 
   stages {
     stage('Show configured projects') {
@@ -40,11 +28,7 @@ pipeline {
           projects.each { project ->
             echo "- ${project.name} -> ${project.repoUrl} on host port ${project.port} container port ${project.containerPort ?: 80} env ${project.environment}"
           }
-          if (!params.PROJECT_NAME?.trim()) {
-            echo 'No PROJECT_NAME selected; pipeline will process all configured projects.'
-          } else {
-            echo "Selected project: ${params.PROJECT_NAME}"
-          }
+          echo 'Pipeline will process all projects configured in projects.json.'
         }
       }
     }
@@ -66,26 +50,19 @@ pipeline {
             return obj
           }
           def projects = toSerializable(new groovy.json.JsonSlurper().parseText(configText))
-          def selected = []
-
-          if (params.PROJECT_NAME?.trim()) {
-            selected = projects.findAll { it.name == params.PROJECT_NAME.trim() }
-          } else {
-            error 'PROJECT_NAME is required. Set PROJECT_NAME to the project you want to build.'
-          }
-
+          def selected = projects
           if (!selected) {
-            error "No project found matching PROJECT_NAME='${params.PROJECT_NAME}'. Check projects.json or use list mode."
+            error 'No projects configured in projects.json.'
           }
 
           selected.each { project ->
-            def repoUrl = params.REPO_URL?.trim() ?: project.repoUrl
-            def branch = params.GIT_BRANCH?.trim() ?: 'main'
-            def hostPort = params.PORT?.trim() ?: project.port.toString()
-            def containerPort = params.CONTAINER_PORT?.trim() ?: (project.containerPort ?: 80).toString()
+            def repoUrl = project.repoUrl
+            def branch = project.gitBranch ?: 'main'
+            def hostPort = project.port.toString()
+            def containerPort = (project.containerPort ?: 80).toString()
             def imageName = project.dockerImageName ?: project.name
             def imageTag = "${imageName}:${env.BUILD_NUMBER ?: 'latest'}"
-            def deployEnv = params.ENVIRONMENT?.trim() ?: project.environment
+            def deployEnv = project.environment
             def containerName = "${project.name}-${deployEnv}"
             def envFile = ''
 
@@ -135,8 +112,8 @@ pipeline {
                 script {
                   def scanEnabled = project.containsKey('scanEnabled') ? project.scanEnabled : true
                   def scanException = project.containsKey('scanException') ? project.scanException : false
-                  def effectiveSkipScan = params.SKIP_SCAN || !scanEnabled
-                  def effectiveAllowException = params.ALLOW_SCAN_EXCEPTION || scanException
+                  def effectiveSkipScan = !scanEnabled
+                  def effectiveAllowException = scanException
 
                   if (effectiveSkipScan) {
                     echo "Skipping Trivy scan for ${project.name}."
