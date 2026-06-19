@@ -1,0 +1,13 @@
+[
+	{
+		"name": "orchestra",
+		"repoUrl": "https://github.com/example/sample-app.git",
+		"port": 1100,
+		"containerPort": 80,
+		"environment": "prod",
+		"dockerImageName": "orchestra",
+		"envVariables": {
+			"APP_ENV": "prod"
+		}
+	}
+]
