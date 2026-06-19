@@ -36,6 +36,14 @@ def add_project(args):
         print(f"Project with name '{args.name}' already exists.")
         sys.exit(1)
 
+    env_type = args.env_type or 'inline'
+    if env_type not in ('inline', 'file'):
+        print("env-type must be 'inline' or 'file'.")
+        sys.exit(1)
+    if env_type == 'file' and not args.env_file:
+        print("env-type 'file' requires --env-file to be provided.")
+        sys.exit(1)
+
     project = {
         'name': args.name,
         'repoUrl': args.repo_url,
@@ -43,7 +51,9 @@ def add_project(args):
         'containerPort': int(args.container_port) if args.container_port else 80,
         'environment': args.environment,
         'dockerImageName': args.image_name or args.name,
-        'envVariables': parse_env_pairs(args.env or [])
+        'envType': env_type,
+        'envFile': args.env_file or '',
+        'envVariables': parse_env_pairs(args.env or []) if env_type == 'inline' else {}
     }
     projects.append(project)
     save_projects(projects)
@@ -62,6 +72,9 @@ def list_projects(_args):
         print(f"  containerPort: {project.get('containerPort', 80)}")
         print(f"  environment: {project['environment']}")
         print(f"  dockerImageName: {project['dockerImageName']}")
+        print(f"  envType: {project.get('envType', 'inline')}")
+        if project.get('envFile'):
+            print(f"  envFile: {project['envFile']}")
         if project.get('envVariables'):
             print('  envVariables:')
             for k, v in project['envVariables'].items():
@@ -89,6 +102,8 @@ def main():
     add.add_argument('--container-port', default='80')
     add.add_argument('--environment', default='dev')
     add.add_argument('--docker-image-name', dest='image_name')
+    add.add_argument('--env-type', choices=['inline', 'file'], default='inline', help='Choose env variable configuration type.')
+    add.add_argument('--env-file', help='Env file name under env/ when env-type is file.')
     add.add_argument('--env', nargs='*', help='Additional env variables in KEY=VALUE form.')
     add.set_defaults(func=add_project)
 

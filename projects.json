@@ -6,6 +6,7 @@
 		"containerPort": 80,
 		"environment": "prod",
 		"dockerImageName": "orchestra",
+		"envType": "inline",
 		"envVariables": {
 			"APP_ENV": "prod"
 		}

@@ -69,7 +69,7 @@ pipeline {
           if (params.PROJECT_NAME?.trim()) {
             selected = projects.findAll { it.name == params.PROJECT_NAME.trim() }
           } else {
-            selected = projects
+            error 'PROJECT_NAME is required. Set PROJECT_NAME to the project you want to build.'
           }
 
           if (!selected) {
@@ -167,14 +167,19 @@ pipeline {
               steps {
                 script {
                   def envFilePath = ''
-                  def envDirFile = "env/${project.name}.env"
-
-                  if (fileExists(envDirFile)) {
-                    echo "Loading environment from ${envDirFile}"
-                    envFilePath = envDirFile
-                  } else if (project.envVariables) {
+                  if (project.envType == 'file' && project.envFile) {
+                    envFilePath = "env/${project.envFile}"
+                    if (!fileExists(envFilePath)) {
+                      error "Env file ${envFilePath} not found for project ${project.name}."
+                    }
+                    echo "Loading environment from ${envFilePath}"
+                  } else if (fileExists("env/${project.name}.env")) {
+                    envFilePath = "env/${project.name}.env"
+                    echo "Loading environment from ${envFilePath}"
+                  } else if (project.envType != 'file' && project.envVariables) {
                     envFilePath = 'target-repo/jenkins.env'
                     writeFile file: envFilePath, text: project.envVariables.collect { k, v -> "${k}=${v}" }.join('\n')
+                    echo "Using inline envVariables for ${project.name}."
                   }
 
                   echo "Deploying Docker container '${containerName}'..."
