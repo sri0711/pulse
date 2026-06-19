@@ -66,127 +66,98 @@ pipeline {
             def containerName = "${project.name}-${deployEnv}"
             def envFile = ''
 
-            stage("Update source code: ${project.name}") {
-              script {
-                echo "Checking repo ${repoUrl} branch ${branch}"
-                def gitCheck = sh(script: "git ls-remote --exit-code ${repoUrl} ${branch}", returnStatus: true)
-                if (gitCheck != 0) {
-                  error "Git branch '${branch}' not found or repo unreachable!"
-                }
+            echo "=== Update source code: ${project.name} ==="
+            echo "Checking repo ${repoUrl} branch ${branch}"
+            def gitCheck = sh(script: "git ls-remote --exit-code ${repoUrl} ${branch}", returnStatus: true)
+            if (gitCheck != 0) {
+              error "Git branch '${branch}' not found or repo unreachable!"
+            }
+            sh 'rm -rf target-repo'
+            sh "git clone --branch ${branch} --depth 1 ${repoUrl} target-repo"
 
-                sh 'rm -rf target-repo'
-                sh "git clone --branch ${branch} --depth 1 ${repoUrl} target-repo"
+            echo "=== Clean Old Image: ${project.name} ==="
+            echo "Checking for existing Docker image ${imageName}..."
+            def imgStatus = sh(script: "docker image inspect ${imageName} > /dev/null 2>&1", returnStatus: true)
+            if (imgStatus == 0) {
+              echo "Image exists. Removing ${imageName}..."
+              sh "docker rmi -f ${imageName} || true"
+            } else {
+              echo "No old image found. Skipping."
+            }
+
+            echo "=== Build Docker Image: ${project.name} ==="
+            echo "Building Docker image '${imageTag}'..."
+            def buildStatus = sh(script: "cd target-repo && docker build -t ${imageTag} .", returnStatus: true)
+            if (buildStatus != 0) {
+              error "Docker build failed!"
+            }
+            echo "Docker image build completed successfully."
+
+            echo "=== Scan with Trivy: ${project.name} ==="
+            def scanEnabled = project.containsKey('scanEnabled') ? project.scanEnabled : true
+            def scanException = project.containsKey('scanException') ? project.scanException : false
+            def effectiveSkipScan = !scanEnabled
+            def effectiveAllowException = scanException
+
+            if (effectiveSkipScan) {
+              echo "Skipping Trivy scan for ${project.name}."
+            } else {
+              echo "Scanning Docker image with Trivy..."
+              def reportFile = "trivy-report-${project.name}.json"
+              sh "trivy image -f json -o ${reportFile} ${imageTag} || true"
+              archiveArtifacts artifacts: reportFile, fingerprint: true
+
+              def trivyStatus = sh(script: "trivy image --exit-code 1 --severity HIGH,CRITICAL --no-progress ${imageTag}", returnStatus: true)
+              if (trivyStatus != 0) {
+                if (effectiveAllowException) {
+                  echo "WARNING: Trivy found HIGH/CRITICAL vulnerabilities, but scan exception is enabled. Continuing."
+                } else {
+                  error "Trivy found HIGH/CRITICAL vulnerabilities!"
+                }
+              } else {
+                echo "No HIGH/CRITICAL vulnerabilities found."
               }
             }
 
-            stage("Clean Old Image: ${project.name}") {
-              steps {
-                script {
-                  echo "Checking for existing Docker image ${imageName}..."
-                  def imgStatus = sh(script: "docker image inspect ${imageName} > /dev/null 2>&1", returnStatus: true)
-                  if (imgStatus == 0) {
-                    echo "Image exists. Removing ${imageName}..."
-                    sh "docker rmi -f ${imageName} || true"
-                  } else {
-                    echo "No old image found. Skipping."
-                  }
-                }
-              }
+            echo "=== Remove Existing Container: ${project.name} ==="
+            echo "Checking for existing container ${containerName}..."
+            def containerExists = sh(script: "docker ps -aq -f name=${containerName}", returnStdout: true).trim()
+            if (containerExists) {
+              echo "Stopping existing container '${containerName}'..."
+              sh "docker stop ${containerName} || true"
+              echo "Removing container '${containerName}'..."
+              sh "docker rm -f ${containerName} || true"
+            } else {
+              echo "No existing container found."
             }
 
-            stage("Build Docker Image: ${project.name}") {
-              steps {
-                script {
-                  echo "Building Docker image '${imageTag}'..."
-                  def buildStatus = sh(script: "cd target-repo && docker build -t ${imageTag} .", returnStatus: true)
-                  if (buildStatus != 0) {
-                    error "Docker build failed!"
-                  }
-                  echo "Docker image build completed successfully."
-                }
+            echo "=== Deploy Container: ${project.name} ==="
+            def envFilePath = ''
+            if (project.envType == 'file' && project.envFile) {
+              envFilePath = "env/${project.envFile}"
+              if (!fileExists(envFilePath)) {
+                error "Env file ${envFilePath} not found for project ${project.name}."
               }
+              echo "Loading environment from ${envFilePath}"
+            } else if (fileExists("env/${project.name}.env")) {
+              envFilePath = "env/${project.name}.env"
+              echo "Loading environment from ${envFilePath}"
+            } else if (project.envType != 'file' && project.envVariables) {
+              envFilePath = 'target-repo/jenkins.env'
+              writeFile file: envFilePath, text: project.envVariables.collect { k, v -> "${k}=${v}" }.join('\n')
+              echo "Using inline envVariables for ${project.name}."
             }
 
-            stage("Scan with Trivy: ${project.name}") {
-              steps {
-                script {
-                  def scanEnabled = project.containsKey('scanEnabled') ? project.scanEnabled : true
-                  def scanException = project.containsKey('scanException') ? project.scanException : false
-                  def effectiveSkipScan = !scanEnabled
-                  def effectiveAllowException = scanException
-
-                  if (effectiveSkipScan) {
-                    echo "Skipping Trivy scan for ${project.name}."
-                  } else {
-                    echo "Scanning Docker image with Trivy..."
-                    def reportFile = "trivy-report-${project.name}.json"
-                    sh "trivy image -f json -o ${reportFile} ${imageTag} || true"
-                    archiveArtifacts artifacts: reportFile, fingerprint: true
-
-                    def trivyStatus = sh(script: "trivy image --exit-code 1 --severity HIGH,CRITICAL --no-progress ${imageTag}", returnStatus: true)
-                    if (trivyStatus != 0) {
-                      if (effectiveAllowException) {
-                        echo "WARNING: Trivy found HIGH/CRITICAL vulnerabilities, but scan exception is enabled. Continuing."
-                      } else {
-                        error "Trivy found HIGH/CRITICAL vulnerabilities!"
-                      }
-                    } else {
-                      echo "No HIGH/CRITICAL vulnerabilities found."
-                    }
-                  }
-                }
-              }
+            echo "Deploying Docker container '${containerName}'..."
+            def deployCmd = "./scripts/deploy.sh ${containerName} ${imageTag} ${hostPort} ${containerPort} ${deployEnv}"
+            if (envFilePath) {
+              deployCmd += " ${envFilePath}"
             }
-
-            stage("Remove Existing Container: ${project.name}") {
-              steps {
-                script {
-                  echo "Checking for existing container ${containerName}..."
-                  def containerExists = sh(script: "docker ps -aq -f name=${containerName}", returnStdout: true).trim()
-                  if (containerExists) {
-                    echo "Stopping existing container '${containerName}'..."
-                    sh "docker stop ${containerName} || true"
-                    echo "Removing container '${containerName}'..."
-                    sh "docker rm -f ${containerName} || true"
-                  } else {
-                    echo "No existing container found."
-                  }
-                }
-              }
+            def runStatus = sh(script: deployCmd, returnStatus: true)
+            if (runStatus != 0) {
+              error "Failed to start Docker container!"
             }
-
-            stage("Deploy Container: ${project.name}") {
-              steps {
-                script {
-                  def envFilePath = ''
-                  if (project.envType == 'file' && project.envFile) {
-                    envFilePath = "env/${project.envFile}"
-                    if (!fileExists(envFilePath)) {
-                      error "Env file ${envFilePath} not found for project ${project.name}."
-                    }
-                    echo "Loading environment from ${envFilePath}"
-                  } else if (fileExists("env/${project.name}.env")) {
-                    envFilePath = "env/${project.name}.env"
-                    echo "Loading environment from ${envFilePath}"
-                  } else if (project.envType != 'file' && project.envVariables) {
-                    envFilePath = 'target-repo/jenkins.env'
-                    writeFile file: envFilePath, text: project.envVariables.collect { k, v -> "${k}=${v}" }.join('\n')
-                    echo "Using inline envVariables for ${project.name}."
-                  }
-
-                  echo "Deploying Docker container '${containerName}'..."
-                  def deployCmd = "./scripts/deploy.sh ${containerName} ${imageTag} ${hostPort} ${containerPort} ${deployEnv}"
-                  if (envFilePath) {
-                    deployCmd += " ${envFilePath}"
-                  }
-                  def runStatus = sh(script: deployCmd, returnStatus: true)
-                  if (runStatus != 0) {
-                    error "Failed to start Docker container!"
-                  }
-                  echo "Docker container deployed successfully."
-                }
-              }
-            }
+            echo "Docker container deployed successfully."
           }
         }
       }
