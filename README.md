@@ -52,6 +52,8 @@ Provide:
 - `ACTION=build-and-deploy`
 - Optional `PORT` or `CONTAINER_PORT` overrides
 - Optional `ENVIRONMENT`
+- Optional `SKIP_SCAN` to skip Trivy scanning
+- Optional `ALLOW_SCAN_EXCEPTION` to continue despite HIGH/CRITICAL Trivy findings
 
 ## Manage configured repos
 

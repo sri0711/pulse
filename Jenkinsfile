@@ -14,6 +14,8 @@ pipeline {
     string(name: 'CONTAINER_PORT', defaultValue: '', description: 'Optional override container port. Defaults to project config or 80.')
     choice(name: 'ACTION', choices: ['build', 'deploy', 'build-and-deploy'], description: 'Pipeline action to perform.')
     choice(name: 'ENVIRONMENT', choices: ['dev', 'staging', 'prod'], description: 'Deployment environment variable.')
+    booleanParam(name: 'SKIP_SCAN', defaultValue: false, description: 'Skip Trivy scan for this job run.')
+    booleanParam(name: 'ALLOW_SCAN_EXCEPTION', defaultValue: false, description: 'Allow Trivy scan failures to continue the build.')
   }
 
   stages {
@@ -131,16 +133,29 @@ pipeline {
             stage("Scan with Trivy: ${project.name}") {
               steps {
                 script {
-                  echo "Scanning Docker image with Trivy..."
-                  def reportFile = "trivy-report-${project.name}.json"
-                  sh "trivy image -f json -o ${reportFile} ${imageTag} || true"
-                  archiveArtifacts artifacts: reportFile, fingerprint: true
+                  def scanEnabled = project.containsKey('scanEnabled') ? project.scanEnabled : true
+                  def scanException = project.containsKey('scanException') ? project.scanException : false
+                  def effectiveSkipScan = params.SKIP_SCAN || !scanEnabled
+                  def effectiveAllowException = params.ALLOW_SCAN_EXCEPTION || scanException
 
-                  def trivyStatus = sh(script: "trivy image --exit-code 1 --severity HIGH,CRITICAL --no-progress ${imageTag}", returnStatus: true)
-                  if (trivyStatus != 0) {
-                    error "Trivy found HIGH/CRITICAL vulnerabilities!"
+                  if (effectiveSkipScan) {
+                    echo "Skipping Trivy scan for ${project.name}."
                   } else {
-                    echo "No HIGH/CRITICAL vulnerabilities found."
+                    echo "Scanning Docker image with Trivy..."
+                    def reportFile = "trivy-report-${project.name}.json"
+                    sh "trivy image -f json -o ${reportFile} ${imageTag} || true"
+                    archiveArtifacts artifacts: reportFile, fingerprint: true
+
+                    def trivyStatus = sh(script: "trivy image --exit-code 1 --severity HIGH,CRITICAL --no-progress ${imageTag}", returnStatus: true)
+                    if (trivyStatus != 0) {
+                      if (effectiveAllowException) {
+                        echo "WARNING: Trivy found HIGH/CRITICAL vulnerabilities, but scan exception is enabled. Continuing."
+                      } else {
+                        error "Trivy found HIGH/CRITICAL vulnerabilities!"
+                      }
+                    } else {
+                      echo "No HIGH/CRITICAL vulnerabilities found."
+                    }
                   }
                 }
               }

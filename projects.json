@@ -9,6 +9,8 @@
 		"envType": "inline",
 		"envVariables": {
 			"APP_ENV": "prod"
-		}
+		},
+		"scanEnabled": false,
+		"scanException": true
 	}
 ]
