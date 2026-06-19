@@ -13,30 +13,30 @@ pipeline {
           def parseString
           parseString = { String s, int i ->
             if (s.charAt(i) != '"') error('Expected "" at position ' + i)
-            def sb = new StringBuilder()
+            def sb = ''
             i++
             while (i < s.length()) {
               def c = s.charAt(i)
               if (c == '"') {
-                return [sb.toString(), i + 1]
+                return [sb, i + 1]
               }
               if (c == '\\') {
                 i++
                 if (i >= s.length()) break
                 def esc = s.charAt(i)
                 switch (esc) {
-                  case '"': sb << '"'; break
-                  case '\\': sb << '\\'; break
-                  case '/': sb << '/'; break
-                  case 'b': sb << '\b'; break
-                  case 'f': sb << '\f'; break
-                  case 'n': sb << '\n'; break
-                  case 'r': sb << '\r'; break
-                  case 't': sb << '\t'; break
-                  default: sb << esc; break
+                  case '"': sb += '"'; break
+                  case '\\': sb += '\\'; break
+                  case '/': sb += '/'; break
+                  case 'b': sb += '\b'; break
+                  case 'f': sb += '\f'; break
+                  case 'n': sb += '\n'; break
+                  case 'r': sb += '\r'; break
+                  case 't': sb += '\t'; break
+                  default: sb += esc; break
                 }
               } else {
-                sb << c
+                sb += c
               }
               i++
             }
