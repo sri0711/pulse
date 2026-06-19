@@ -21,7 +21,19 @@ pipeline {
       steps {
         script {
           def configText = readFile('projects.json')
-          def projects = new groovy.json.JsonSlurper().parseText(configText).collect { project -> new java.util.HashMap(project) }
+          def toSerializable
+          toSerializable = { obj ->
+            if (obj instanceof Map) {
+              def result = new java.util.HashMap()
+              obj.each { k, v -> result[k] = toSerializable(v) }
+              return result
+            }
+            if (obj instanceof Collection) {
+              return obj.collect { toSerializable(it) }
+            }
+            return obj
+          }
+          def projects = toSerializable(new groovy.json.JsonSlurper().parseText(configText))
           echo "Configured projects:"
           projects.each { project ->
             echo "- ${project.name} -> ${project.repoUrl} on host port ${project.port} container port ${project.containerPort ?: 80} env ${project.environment}"
@@ -39,7 +51,19 @@ pipeline {
       steps {
         script {
           def configText = readFile('projects.json')
-          def projects = new groovy.json.JsonSlurper().parseText(configText).collect { project -> new java.util.HashMap(project) }
+          def toSerializable
+          toSerializable = { obj ->
+            if (obj instanceof Map) {
+              def result = new java.util.HashMap()
+              obj.each { k, v -> result[k] = toSerializable(v) }
+              return result
+            }
+            if (obj instanceof Collection) {
+              return obj.collect { toSerializable(it) }
+            }
+            return obj
+          }
+          def projects = toSerializable(new groovy.json.JsonSlurper().parseText(configText))
           def selected = []
 
           if (params.PROJECT_NAME?.trim()) {
