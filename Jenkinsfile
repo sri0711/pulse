@@ -37,7 +37,7 @@ ${envLines}  }
           if (gitCheck != 0) {
             error "Git branch '${quote(branch)}' not found or repo unreachable!"
           }
-          checkout([$class: 'GitSCM', branches: [[name: '${quote(branch)}']], userRemoteConfigs: [[url: '${quote(project.repoUrl)}']]])
+          checkout([\$class: 'GitSCM', branches: [[name: '${quote(branch)}']], userRemoteConfigs: [[url: '${quote(project.repoUrl)}']]])
           echo "Code update completed."
         }
       }
