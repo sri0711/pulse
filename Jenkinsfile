@@ -9,7 +9,141 @@ pipeline {
     stage('Create Jenkins jobs') {
       steps {
         script {
-          def projects = readJSON file: 'projects.json'
+          def text = readFile('projects.json')
+          def parseString
+          parseString = { String s, int i ->
+            if (s.charAt(i) != '"') error("Expected '"' at position ${i}")
+            def sb = new StringBuilder()
+            i++
+            while (i < s.length()) {
+              def c = s.charAt(i)
+              if (c == '"') {
+                return [sb.toString(), i + 1]
+              }
+              if (c == '\\') {
+                i++
+                if (i >= s.length()) break
+                def esc = s.charAt(i)
+                switch (esc) {
+                  case '"': sb << '"'; break
+                  case '\\': sb << '\\'; break
+                  case '/': sb << '/'; break
+                  case 'b': sb << '\b'; break
+                  case 'f': sb << '\f'; break
+                  case 'n': sb << '\n'; break
+                  case 'r': sb << '\r'; break
+                  case 't': sb << '\t'; break
+                  default: sb << esc; break
+                }
+              } else {
+                sb << c
+              }
+              i++
+            }
+            error('Unterminated JSON string')
+          }
+
+          def skipWhitespace
+          skipWhitespace = { String s, int i ->
+            while (i < s.length() && s.charAt(i).toString().trim().isEmpty()) {
+              i++
+            }
+            return i
+          }
+
+          def parseValue
+          parseValue = { String s, int i ->
+            i = skipWhitespace(s, i)
+            if (s.charAt(i) == '"') {
+              return parseString(s, i)
+            }
+            if (s.charAt(i) == '{') {
+              return parseObject(s, i)
+            }
+            if (s.startsWith('true', i)) {
+              return [true, i + 4]
+            }
+            if (s.startsWith('false', i)) {
+              return [false, i + 5]
+            }
+            if (s.startsWith('null', i)) {
+              return [null, i + 4]
+            }
+            def num = new StringBuilder()
+            if (s.charAt(i) == '-') {
+              num << '-'
+              i++
+            }
+            while (i < s.length() && (s.charAt(i).isDigit() || s.charAt(i) == '.')) {
+              num << s.charAt(i)
+              i++
+            }
+            if (num.length() == 0) {
+              error("Unexpected JSON value at position ${i}")
+            }
+            def numStr = num.toString()
+            if (numStr.contains('.')) {
+              return [numStr.toBigDecimal(), i]
+            }
+            return [numStr.toBigInteger(), i]
+          }
+
+          def parseObject
+          parseObject = { String s, int i ->
+            def map = [:]
+            if (s.charAt(i) != '{') error("Expected '{' at position ${i}")
+            i++
+            while (true) {
+              i = skipWhitespace(s, i)
+              if (s.charAt(i) == '}') {
+                return [map, i + 1]
+              }
+              def (key, nextIndex) = parseString(s, i)
+              i = nextIndex
+              i = skipWhitespace(s, i)
+              if (s.charAt(i) != ':') error("Expected ':' after key at position ${i}")
+              i++
+              def (value, nextVal) = parseValue(s, i)
+              map[key] = value
+              i = nextVal
+              i = skipWhitespace(s, i)
+              if (s.charAt(i) == ',') {
+                i++
+                continue
+              }
+              if (s.charAt(i) == '}') {
+                return [map, i + 1]
+              }
+              error("Expected ',' or '}' at position ${i}")
+            }
+          }
+
+          def parseArray
+          parseArray = { String s ->
+            def results = []
+            def i = skipWhitespace(s, 0)
+            if (s.charAt(i) != '[') error('Expected JSON array')
+            i++
+            while (true) {
+              i = skipWhitespace(s, i)
+              if (s.charAt(i) == ']') {
+                return results
+              }
+              def (item, nextIndex) = parseObject(s, i)
+              results << item
+              i = skipWhitespace(s, nextIndex)
+              if (s.charAt(i) == ',') {
+                i++
+                continue
+              }
+              if (s.charAt(i) == ']') {
+                return results
+              }
+              error("Expected ',' or ']' at position ${i}")
+            }
+          }
+
+          def projects = parseArray(text)
           def quote = { s -> s.toString().replace("'", "\\'") }
 
           projects.each { project ->
