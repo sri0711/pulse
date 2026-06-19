@@ -12,7 +12,7 @@ pipeline {
           def text = readFile('projects.json')
           def parseString
           parseString = { String s, int i ->
-            if (s.charAt(i) != '"') error("Expected '"' at position ${i}")
+            if (s.charAt(i) != '"') error('Expected "" at position ' + i)
             def sb = new StringBuilder()
             i++
             while (i < s.length()) {
