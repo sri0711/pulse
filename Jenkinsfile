@@ -21,7 +21,7 @@ pipeline {
       steps {
         script {
           def configText = readFile('projects.json')
-          def projects = new groovy.json.JsonSlurper().parseText(configText)
+          def projects = new groovy.json.JsonSlurper().parseText(configText).collect { project -> new java.util.HashMap(project) }
           echo "Configured projects:"
           projects.each { project ->
             echo "- ${project.name} -> ${project.repoUrl} on host port ${project.port} container port ${project.containerPort ?: 80} env ${project.environment}"
@@ -39,7 +39,7 @@ pipeline {
       steps {
         script {
           def configText = readFile('projects.json')
-          def projects = new groovy.json.JsonSlurper().parseText(configText)
+          def projects = new groovy.json.JsonSlurper().parseText(configText).collect { project -> new java.util.HashMap(project) }
           def selected = []
 
           if (params.PROJECT_NAME?.trim()) {
