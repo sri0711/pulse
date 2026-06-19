@@ -9,8 +9,7 @@ pipeline {
     stage('Create Jenkins jobs') {
       steps {
         script {
-          def configText = readFile('projects.json')
-          def projects = new groovy.json.JsonSlurperClassic().parseText(configText)
+          def projects = readJSON file: 'projects.json'
           def quote = { s -> s.toString().replace("'", "\\'") }
 
           projects.each { project ->
