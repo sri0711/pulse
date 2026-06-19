@@ -142,15 +142,21 @@ pipeline {
             stage("Deploy Container: ${project.name}") {
               steps {
                 script {
-                  if (project.envVariables) {
-                    envFile = 'target-repo/jenkins.env'
-                    writeFile file: envFile, text: project.envVariables.collect { k, v -> "${k}=${v}" }.join('\n')
+                  def envFilePath = ''
+                  def envDirFile = "env/${project.name}.env"
+
+                  if (fileExists(envDirFile)) {
+                    echo "Loading environment from ${envDirFile}"
+                    envFilePath = envDirFile
+                  } else if (project.envVariables) {
+                    envFilePath = 'target-repo/jenkins.env'
+                    writeFile file: envFilePath, text: project.envVariables.collect { k, v -> "${k}=${v}" }.join('\n')
                   }
 
                   echo "Deploying Docker container '${containerName}'..."
                   def deployCmd = "./scripts/deploy.sh ${containerName} ${imageTag} ${hostPort} ${containerPort} ${deployEnv}"
-                  if (envFile) {
-                    deployCmd += " ${envFile}"
+                  if (envFilePath) {
+                    deployCmd += " ${envFilePath}"
                   }
                   def runStatus = sh(script: deployCmd, returnStatus: true)
                   if (runStatus != 0) {
